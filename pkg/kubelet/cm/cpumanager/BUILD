@@ -18,6 +18,8 @@ go_library(
         "//pkg/kubelet/cm/cpumanager/state:go_default_library",
         "//pkg/kubelet/cm/cpumanager/topology:go_default_library",
         "//pkg/kubelet/cm/cpuset:go_default_library",
+        "//pkg/kubelet/cm/topologymanager:go_default_library",
+        "//pkg/kubelet/cm/topologymanager/socketmask:go_default_library",
         "//pkg/kubelet/container:go_default_library",
         "//pkg/kubelet/status:go_default_library",
         "//staging/src/k8s.io/api/core/v1:go_default_library",

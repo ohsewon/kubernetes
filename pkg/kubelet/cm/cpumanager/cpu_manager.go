@@ -21,7 +21,6 @@ import (
 	"math"
 	"sync"
 	"time"
-
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -32,6 +31,8 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/socketmask"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 )
 
@@ -64,6 +65,10 @@ type Manager interface {
 
 	// State returns a read-only interface to the internal CPU manager state.
 	State() state.Reader
+        
+       // GetTopologyHints implements the Topology Manager Interface and is 
+       // consulted to make Topology aware resource alignments
+       GetTopologyHints(pod v1.Pod, container v1.Container) topologymanager.TopologyHints
 }
 
 type manager struct {
@@ -97,7 +102,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager creates new cpu manager based on provided policy
-func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string) (Manager, error) {
+func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
 	switch policyName(cpuPolicyName) {
@@ -129,7 +134,7 @@ func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo
 		// exclusively allocated.
 		reservedCPUsFloat := float64(reservedCPUs.MilliValue()) / 1000
 		numReservedCPUs := int(math.Ceil(reservedCPUsFloat))
-		policy = NewStaticPolicy(topo, numReservedCPUs)
+		policy = NewStaticPolicy(topo, numReservedCPUs, affinity)
 
 	default:
 		klog.Errorf("[cpumanager] Unknown policy \"%s\", falling back to default policy \"%s\"", cpuPolicyName, PolicyNone)
@@ -149,6 +154,81 @@ func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo
 		nodeAllocatableReservation: nodeAllocatableReservation,
 	}
 	return manager, nil
+}
+
+func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) topologymanager.TopologyHints {
+   	var cpuSocketMask []socketmask.SocketMask	
+    	for resourceObj, amountObj := range container.Resources.Requests {
+        	resource := string(resourceObj)
+        	amount := int(amountObj.Value())
+        	amount64 := int64(amount)
+        	if resource != "cpu" {
+                	continue
+            	}
+        
+        	klog.Infof("[cpumanager] Guaranteed CPUs detected: %v", amount)
+
+            	topo, err := topology.Discover(m.machineInfo)
+            	if err != nil {
+                    klog.Infof("[cpu manager] error discovering topology")
+            	}
+        
+        	allCPUs := topo.CPUDetails.CPUs()
+        	klog.Infof("[cpumanager] Shared CPUs: %v", allCPUs)         
+        	reservedCPUs := m.nodeAllocatableReservation[v1.ResourceCPU]	
+        	reservedCPUsFloat := float64(reservedCPUs.MilliValue()) / 1000
+        	numReservedCPUs := int(math.Ceil(reservedCPUsFloat))        	
+        	reserved, _ := takeByTopology(topo, allCPUs, numReservedCPUs)
+        	klog.Infof("[cpumanager] Reserved CPUs: %v", reserved)                
+        	assignableCPUs := m.state.GetDefaultCPUSet().Difference(reserved)
+        	klog.Infof("[cpumanager] Assignable CPUs (Shared - Reserved): %v", assignableCPUs)
+        	cpuAccum := newCPUAccumulator(topo, assignableCPUs, amount)     
+            	socketCount := topo.NumSockets
+            	klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
+        	freeCPUs := cpuAccum.freeCPUs()
+        	klog.Infof("[cpumanager] Assignable CPUs (all Sockets): %v", freeCPUs)	
+        	CPUsInSocketSize := make([]int64, socketCount)
+        	var arr []int64
+        	var sum int64 = 0
+        	var divided [][]int64
+        	for i := 0; i < socketCount; i++ {
+            		CPUsInSocket := cpuAccum.details.CPUsInSocket(i)
+            		klog.Infof("[cpumanager] Assignable CPUs on Socket %v: %v", i, CPUsInSocket)
+            		CPUsInSocketSize[i] = int64(CPUsInSocket.Size())
+            		sum += CPUsInSocketSize[i]
+            		if CPUsInSocketSize[i] >= amount64 {
+                		for j := 0; j < socketCount; j++ {
+                            		if j == i {
+                                    		arr = append(arr, 1)
+                            		} else {
+                                    		arr = append(arr, 0)
+                            		}
+                        	}
+                        	divided = append(divided, arr)
+                        	arr = nil
+            		}						
+        	}
+        	if sum >= amount64 {
+                    	for i := 0; i < socketCount; i++ {
+                        	    	if CPUsInSocketSize[i] == 0 {
+                                    		arr = append(arr, 0)
+                            	    	} else {
+                                    		arr = append(arr, 1)
+                            		}
+                    	}
+                    	divided = append(divided, arr)
+                }
+        	klog.Infof("[cpumanager] Number of Assignable CPUs per Socket: %v", CPUsInSocketSize)	
+        	klog.Infof("[cpumanager] Topology Affinities for pod (divided array): %v", divided)
+        	for r := range divided {
+            		cpuSocket := socketmask.SocketMask(divided[r])
+            		cpuSocketMask = append(cpuSocketMask, cpuSocket)
+        	}    
+    	}  
+    	return topologymanager.TopologyHints{ 
+        	SocketAffinity: cpuSocketMask,
+        	Affinity: true,
+    	}
 }
 
 func (m *manager) Start(activePods ActivePodsFunc, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService) {
