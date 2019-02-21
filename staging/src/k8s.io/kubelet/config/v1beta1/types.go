@@ -409,6 +409,13 @@ type KubeletConfiguration struct {
 	// Default: "10s"
 	// +optional
 	CPUManagerReconcilePeriod metav1.Duration `json:"cpuManagerReconcilePeriod,omitempty"`
+	// TopologyManagerPolicy is the name of the policy to use.
+	// Requires the TopologyManager feature gate to be enabled.
+	// Dynamic Kubelet Config (beta): This field should not be updated without a full node
+	// reboot. It is safest to keep this value the same as the local config.
+	// Default: "none"
+	// +optional
+	TopologyManagerPolicy string `json:"topologyManagerPolicy,omitempty"`
 	// qosReserved is a set of resource name to percentage pairs that specify
 	// the minimum percentage of a resource reserved for exclusive use by the
 	// guaranteed QoS tier.

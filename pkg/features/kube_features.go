@@ -169,6 +169,12 @@ const (
 	// Enable pods to consume pre-allocated huge pages of varying page sizes
 	HugePages featuregate.Feature = "HugePages"
 
+	// owner: @lmdaly
+	// alpha: v1.15
+	//
+	// Enable resource managers to make NUMA aligned decisions
+	TopologyManager featuregate.Feature = "TopologyManager"
+
 	// owner: @sjenning
 	// beta: v1.11
 	//
@@ -485,6 +491,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	AttachVolumeLimit:                           {Default: true, PreRelease: featuregate.Beta},
 	CPUManager:                                  {Default: true, PreRelease: featuregate.Beta},
 	CPUCFSQuotaPeriod:                           {Default: false, PreRelease: featuregate.Alpha},
+	TopologyManager:                             {Default: false, PreRelease: featuregate.Alpha},
 	ServiceNodeExclusion:                        {Default: false, PreRelease: featuregate.Alpha},
 	MountContainers:                             {Default: false, PreRelease: featuregate.Alpha},
 	VolumeScheduling:                            {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.16
