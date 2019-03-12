@@ -38,6 +38,7 @@ go_test(
         "policy_none_test.go",
         "policy_static_test.go",
         "policy_test.go",
+        "topology_hints_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
@@ -45,6 +46,8 @@ go_test(
         "//pkg/kubelet/cm/cpumanager/state:go_default_library",
         "//pkg/kubelet/cm/cpumanager/topology:go_default_library",
         "//pkg/kubelet/cm/cpuset:go_default_library",
+        "//pkg/kubelet/cm/topologymanager:go_default_library",
+        "//pkg/kubelet/cm/topologymanager/socketmask:go_default_library",
         "//staging/src/k8s.io/api/core/v1:go_default_library",
         "//staging/src/k8s.io/apimachinery/pkg/api/resource:go_default_library",
         "//staging/src/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
