@@ -65,9 +65,9 @@ type Manager interface {
 	// State returns a read-only interface to the internal CPU manager state.
 	State() state.Reader
         
-       // GetTopologyHints implements the Topology Manager Interface and is 
-       // consulted to make Topology aware resource alignments
-       GetTopologyHints(pod v1.Pod, container v1.Container) topologymanager.TopologyHints
+       	// GetTopologyHints implements the Topology Manager Interface and is 
+       	// consulted to make Topology aware resource alignments
+       	GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool)
 }
 
 type manager struct {

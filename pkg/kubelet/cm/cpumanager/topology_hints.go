@@ -1,12 +1,9 @@
 /*
 Copyright 2019 The Kubernetes Authors.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-
     http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,8 +25,8 @@ import (
 )
 
 
-func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) topologymanager.TopologyHints {
-    	var cpuMask []socketmask.SocketMask	
+func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool) {
+    	var cpuHints []topologymanager.TopologyHint	
     	for resourceObj, amountObj := range container.Resources.Requests {
         	resource := string(resourceObj)
         	amount := int(amountObj.Value())
@@ -50,12 +47,9 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) topologym
 
             	socketCount := topo.NumSockets
             	klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
-		cpuMask = getCPUMask(socketCount, cpuAccum, requested)
+		cpuHints = getCPUMask(socketCount, cpuAccum, requested)
     	}  
-    	return topologymanager.TopologyHints{ 
-        	SocketAffinity: cpuMask,
-        	Affinity: true,
-    	}
+    	return cpuHints, true 
 }
 
 func (m *manager) getAssignableCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
@@ -71,12 +65,11 @@ func (m *manager) getAssignableCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
 	return assignableCPUs
 }
 
-func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int64) []socketmask.SocketMask {
-	var cpuMask []socketmask.SocketMask
+func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int64) []topologymanager.TopologyHint {
 	CPUsInSocketSize := make([]int64, socketCount)
 	var mask []int64
 	var totalCPUs int64 = 0
-      	var cpuMaskTemp [][]int64 
+      	var cpuHintsTemp [][]int64 
       	for i := 0; i < socketCount; i++ {
         	CPUsInSocket := cpuAccum.details.CPUsInSocket(i)
               	klog.Infof("[cpumanager] Assignable CPUs on Socket %v: %v", i, CPUsInSocket)
@@ -90,21 +83,22 @@ func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int64) []so
                                 	mask = append(mask, 0)
                              	}
                    	}
-                 	cpuMaskTemp = append(cpuMaskTemp, mask)
+                 	cpuHintsTemp = append(cpuHintsTemp, mask)
                    	mask = nil
            	}                        
   	}
 	if totalCPUs >= requested {
 		crossSocketMask := buildCrossSocketMask(socketCount, CPUsInSocketSize)  		
-           	cpuMaskTemp = append(cpuMaskTemp, crossSocketMask)
+           	cpuHintsTemp = append(cpuHintsTemp, crossSocketMask)
   	}
 	klog.Infof("[cpumanager] Number of Assignable CPUs per Socket: %v", CPUsInSocketSize)   
-      	klog.Infof("[cpumanager] Topology Affinities for pod: %v", cpuMaskTemp)             
-      	for r := range cpuMaskTemp {
-          	cpuSocket := socketmask.SocketMask(cpuMaskTemp[r])
-            	cpuMask = append(cpuMask, cpuSocket)
+      	klog.Infof("[cpumanager] Topology Affinities for pod: %v", cpuHintsTemp)             
+      	cpuHints := make([]topologymanager.TopologyHint, len(cpuHintsTemp))
+	for r := range cpuHintsTemp {
+          	cpuSocket := socketmask.SocketMask(cpuHintsTemp[r])
+       		cpuHints[r].SocketMask = cpuSocket
    	}
-	return cpuMask
+	return cpuHints
 }
 
 func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int64) []int64 {
@@ -118,4 +112,3 @@ func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int64) []int64 {
 	}
 	return mask
 }
-
