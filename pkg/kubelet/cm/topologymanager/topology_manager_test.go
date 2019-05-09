@@ -156,7 +156,7 @@ func TestCalculateTopologyAffinity(t *testing.T) {
 	}
 }
 
-func TestAddPod(t *testing.T) {
+func TestAddContainer(t *testing.T) {
 	testCases := []struct {
 		name        string
 		containerID string
@@ -178,7 +178,7 @@ func TestAddPod(t *testing.T) {
 	for _, tc := range testCases {
 		pod := v1.Pod{}
 		pod.UID = tc.podUID
-		err := mngr.AddPod(&pod, tc.containerID)
+		err := mngr.AddContainer(&pod, tc.containerID)
 		if err != nil {
 			t.Errorf("Expected error to be nil but got: %v", err)
 		}
@@ -192,7 +192,7 @@ func TestAddPod(t *testing.T) {
 	}
 }
 
-func TestRemovePod(t *testing.T) {
+func TestRemoveContainer(t *testing.T) {
 	testCases := []struct {
 		name        string
 		containerID string
@@ -215,7 +215,7 @@ func TestRemovePod(t *testing.T) {
 	for _, tc := range testCases {
 		mngr.podMap[tc.containerID] = string(tc.podUID)
 		len1 = len(mngr.podMap)
-		err := mngr.RemovePod(tc.containerID)
+		err := mngr.RemoveContainer(tc.containerID)
 		len2 = len(mngr.podMap)
 		if err != nil {
 			t.Errorf("Expected error to be nil but got: %v", err)

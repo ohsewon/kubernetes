@@ -56,7 +56,7 @@ func TestFakeGetAffinity(t *testing.T) {
 	}
 }
 
-func TestFakeAddPod(t *testing.T) {
+func TestFakeAddContainer(t *testing.T) {
 	testCases := []struct {
 		name        string
 		containerID string
@@ -79,7 +79,7 @@ func TestFakeAddPod(t *testing.T) {
 	for _, tc := range testCases {
 		pod := v1.Pod{}
 		pod.UID = tc.podUID
-		err := fm.AddPod(&pod, tc.containerID)
+		err := fm.AddContainer(&pod, tc.containerID)
 		if err != nil {
 			t.Errorf("Expected error to be nil but got: %v", err)
 
@@ -88,7 +88,7 @@ func TestFakeAddPod(t *testing.T) {
 	}
 }
 
-func TestFakeRemovePod(t *testing.T) {
+func TestFakeRemoveContainer(t *testing.T) {
 	testCases := []struct {
 		name        string
 		containerID string
@@ -109,7 +109,7 @@ func TestFakeRemovePod(t *testing.T) {
 	mngr := manager{}
 	mngr.podMap = make(map[string]string)
 	for _, tc := range testCases {
-		err := fm.RemovePod(tc.containerID)
+		err := fm.RemoveContainer(tc.containerID)
 		if err != nil {
 			t.Errorf("Expected error to be nil but got: %v", err)
 		}
