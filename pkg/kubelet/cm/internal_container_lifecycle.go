@@ -68,7 +68,7 @@ func (i *internalContainerLifecycleImpl) PostStopContainer(containerID string) e
 		}
 	}
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.TopologyManager) {
-		err := i.topologyManager.RemovePod(containerID)
+		err := i.topologyManager.RemoveContainer(containerID)
 		if err != nil {
 			return err
 		}
