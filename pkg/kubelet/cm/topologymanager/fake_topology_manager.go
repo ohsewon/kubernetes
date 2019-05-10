@@ -30,9 +30,9 @@ func NewFakeManager() Manager {
 	return &fakeManager{}
 }
 
-func (m *fakeManager) GetAffinity(podUID string, containerName string) TopologyHints {
+func (m *fakeManager) GetAffinity(podUID string, containerName string) TopologyHint {
 	klog.Infof("[fake topologymanager] GetAffinity podUID: %v container name:  %v", podUID, containerName)
-	return TopologyHints{}
+	return TopologyHint{}
 }
 
 func (m *fakeManager) AddHintProvider(h HintProvider) {

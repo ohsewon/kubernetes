@@ -38,16 +38,6 @@ type Manager interface {
 	Store
 }
 
-//HintProvider interface is to be implemented by Hint Providers
-type HintProvider interface {
-	GetTopologyHints(pod v1.Pod, container v1.Container) []TopologyHint
-//TopologyHints is a struct containing Sokcet Affinity for a Pod
-//and whether Affinity is true or false
-type TopologyHints struct {
-	SocketAffinity []socketmask.SocketMask
-	Affinity       bool
-}
-
 type manager struct {
 	//The list of components registered with the Manager
 	hintProviders []HintProvider
@@ -60,7 +50,7 @@ type manager struct {
 
 //HintProvider interface is to be implemented by Hint Providers
 type HintProvider interface {
-	GetTopologyHints(pod v1.Pod, container v1.Container) TopologyHints
+	GetTopologyHints(pod v1.Pod, container v1.Container) ([]TopologyHint, bool)
 }
 
 //Store interface is to allow Hint Providers to retrieve pod affinity
@@ -76,7 +66,7 @@ type TopologyHint struct {
 	Preferred bool
 }
 
-type containers map[string]TopologyHints
+type containers map[string]TopologyHint
 
 var _ Manager = &manager{}
 
@@ -113,38 +103,40 @@ func NewManager(topologyPolicyName string) Manager {
 	return manager
 }
 
-func (m *manager) GetAffinity(podUID string, containerName string) TopologyHints {
+func (m *manager) GetAffinity(podUID string, containerName string) TopologyHint {
 	return m.podTopologyHints[podUID][containerName]
 }
 
-func (m *manager) calculateTopologyAffinity(pod v1.Pod, container v1.Container) TopologyHints {
+func (m *manager) calculateTopologyAffinity(pod v1.Pod, container v1.Container) (TopologyHint, bool) {
 	socketMask := socketmask.NewSocketMask(nil)
 	var maskHolder []string
+	var socketMaskInt64 [][]int64
 	count := 0
-	affinity := true
+	admitPod := true
 	for _, hp := range m.hintProviders {
-		topologyHints := hp.GetTopologyHints(pod, container)
-		if topologyHints.Affinity && topologyHints.SocketAffinity != nil {
-			klog.Infof("[topologymanager] Topology Affinity.")
-			socketMask, maskHolder = socketMask.GetSocketMask(topologyHints.SocketAffinity, maskHolder, count)
+		topologyHints, admit := hp.GetTopologyHints(pod, container)
+		for r := range topologyHints {
+                	socketMaskVals := []int64(topologyHints[r].SocketMask)
+                        socketMaskInt64 = append(socketMaskInt64,socketMaskVals)
+                }
+		if !admit && topologyHints == nil {
+            		klog.Infof("[topologymanager] Hint Provider does not care about this container")
+            		continue
+        	}
+		if admit && topologyHints != nil {
+			socketMask, maskHolder = socketMask.GetSocketMask(socketMaskInt64, maskHolder, count)
 			count++
-		} else if topologyHints.Affinity && topologyHints.SocketAffinity == nil {
-			klog.Infof("[topologymanager] NO Topology Affinity.")
-			return TopologyHints{
-				SocketAffinity: []socketmask.SocketMask{socketMask},
-				Affinity:       false,
-			}
-		} else if !topologyHints.Affinity && topologyHints.SocketAffinity != nil {
+		} else if !admit && topologyHints != nil {
 			klog.Infof("[topologymanager] Cross Socket Topology Affinity")
-			affinity = false
-			socketMask, maskHolder = socketMask.GetSocketMask(topologyHints.SocketAffinity, maskHolder, count)
+			admitPod = false
+			socketMask, maskHolder = socketMask.GetSocketMask(socketMaskInt64, maskHolder, count)
 			count++
 		}
 	}
-	return TopologyHints{
-		SocketAffinity: []socketmask.SocketMask{socketMask},
-		Affinity:       affinity,
-	}
+	var topologyHint TopologyHint
+	topologyHint.SocketMask = socketMask 
+
+	return topologyHint, admitPod
 }
 
 func (m *manager) AddHintProvider(h HintProvider) {
@@ -174,8 +166,8 @@ func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 
 	if qosClass == "Guaranteed" {
 		for _, container := range pod.Spec.Containers {
-			result := m.calculateTopologyAffinity(*pod, container)
-			admitPod := m.policy.CanAdmitPodResult(result)
+			result, admit := m.calculateTopologyAffinity(*pod, container)
+			admitPod := m.policy.CanAdmitPodResult(admit)
 			if admitPod.Admit == false {
 				return admitPod
 			}
