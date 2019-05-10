@@ -116,13 +116,13 @@ func (m *manager) calculateTopologyAffinity(pod v1.Pod, container v1.Container) 
 	for _, hp := range m.hintProviders {
 		topologyHints, admit := hp.GetTopologyHints(pod, container)
 		for r := range topologyHints {
-                	socketMaskVals := []int64(topologyHints[r].SocketMask)
-                        socketMaskInt64 = append(socketMaskInt64,socketMaskVals)
-                }
+			socketMaskVals := []int64(topologyHints[r].SocketMask)
+			socketMaskInt64 = append(socketMaskInt64, socketMaskVals)
+		}
 		if !admit && topologyHints == nil {
-            		klog.Infof("[topologymanager] Hint Provider does not care about this container")
-            		continue
-        	}
+			klog.Infof("[topologymanager] Hint Provider does not care about this container")
+			continue
+		}
 		if admit && topologyHints != nil {
 			socketMask, maskHolder = socketMask.GetSocketMask(socketMaskInt64, maskHolder, count)
 			count++
@@ -134,7 +134,7 @@ func (m *manager) calculateTopologyAffinity(pod v1.Pod, container v1.Container) 
 		}
 	}
 	var topologyHint TopologyHint
-	topologyHint.SocketMask = socketMask 
+	topologyHint.SocketMask = socketMask
 
 	return topologyHint, admitPod
 }
@@ -165,7 +165,7 @@ func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 	qosClass := pod.Status.QOSClass
 
 	if qosClass == "Guaranteed" {
-		for _, container := range pod.Spec.Containers {
+		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 			result, admit := m.calculateTopologyAffinity(*pod, container)
 			admitPod := m.policy.CanAdmitPodResult(admit)
 			if admitPod.Admit == false {
