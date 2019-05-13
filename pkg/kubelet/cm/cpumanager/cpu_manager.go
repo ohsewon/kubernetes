@@ -18,20 +18,20 @@ package cpumanager
 
 import (
 	"fmt"
-	"math"
-	"sync"
-	"time"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
+	"math"
+	"sync"
+	"time"
 
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
-	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 )
 
@@ -64,10 +64,10 @@ type Manager interface {
 
 	// State returns a read-only interface to the internal CPU manager state.
 	State() state.Reader
-        
-       	// GetTopologyHints implements the Topology Manager Interface and is 
-       	// consulted to make Topology aware resource alignments
-       	GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool)
+
+	// GetTopologyHints implements the Topology Manager Interface and is
+	// consulted to make Topology aware resource alignments
+	GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool)
 }
 
 type manager struct {

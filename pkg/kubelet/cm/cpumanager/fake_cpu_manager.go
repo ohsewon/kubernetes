@@ -28,8 +28,8 @@ type fakeManager struct {
 	state state.State
 }
 
-func(m *fakeManager) GetAffinity() topologymanager.Store {
-       return nil
+func (m *fakeManager) GetAffinity() topologymanager.Store {
+	return nil
 }
 
 func (m *fakeManager) Start(activePods ActivePodsFunc, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService) {
@@ -52,8 +52,8 @@ func (m *fakeManager) RemoveContainer(containerID string) error {
 }
 
 func (m *fakeManager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool) {
-       klog.Infof("[fake cpumanager] Get Topology Hints")
-       return []topologymanager.TopologyHint{}, false
+	klog.Infof("[fake cpumanager] Get Topology Hints")
+	return []topologymanager.TopologyHint{}, false
 }
 
 func (m *fakeManager) State() state.Reader {

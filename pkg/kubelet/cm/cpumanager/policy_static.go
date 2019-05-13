@@ -74,8 +74,8 @@ type staticPolicy struct {
 	topology *topology.CPUTopology
 	// set of CPUs that is not available for exclusive assignment
 	reserved cpuset.CPUSet
-        // topology manager reference to get container Topology affinity
-    	affinity topologymanager.Store
+	// topology manager reference to get container Topology affinity
+	affinity topologymanager.Store
 }
 
 // Ensure staticPolicy implements Policy interface
@@ -102,7 +102,7 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, affini
 	return &staticPolicy{
 		topology: topology,
 		reserved: reserved,
-        	affinity: affinity,
+		affinity: affinity,
 	}
 }
 
@@ -185,15 +185,15 @@ func (p *staticPolicy) AddContainer(s state.State, pod *v1.Pod, container *v1.Co
 		}
 
 		// call Topology Manager to get Container affinity
-        	containerTopologyHint := p.affinity.GetAffinity(string(pod.UID), container.Name)
-        	klog.Infof("[cpumanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, containerTopologyHint)
+		containerTopologyHint := p.affinity.GetAffinity(string(pod.UID), container.Name)
+		klog.Infof("[cpumanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, containerTopologyHint)
 
-                sockets := make(map[int]bool)
+		sockets := make(map[int]bool)
 		for counter, bit := range containerTopologyHint.SocketMask {
 			if bit == int64(1) {
 				sockets[counter] = true
 			}
-		}	
+		}
 		cpuset, err := p.allocateCPUs(s, numCPUs, sockets)
 		if err != nil {
 			klog.Errorf("[cpumanager] unable to allocate %d CPUs (container id: %s, error: %v)", numCPUs, containerID, err)
@@ -217,8 +217,8 @@ func (p *staticPolicy) RemoveContainer(s state.State, containerID string) error 
 
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, sockets map[int]bool) (cpuset.CPUSet, error) {
 	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %d)", numCPUs, sockets)
-        assignableCPUs := cpuset.NewCPUSet()
-        if len(sockets) != 0 {	
+	assignableCPUs := cpuset.NewCPUSet()
+	if len(sockets) != 0 {
 		for socketID, socketAvail := range sockets {
 			if socketAvail {
 				assignableCPUs = assignableCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInSocket(socketID)))
@@ -227,7 +227,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, sockets map[int]
 	} else {
 		assignableCPUs = p.assignableCPUs(s)
 	}
-    	result, err := takeByTopology(p.topology, assignableCPUs, numCPUs)
+	result, err := takeByTopology(p.topology, assignableCPUs, numCPUs)
 	if err != nil {
 		return cpuset.NewCPUSet(), err
 	}
