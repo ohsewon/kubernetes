@@ -1,9 +1,12 @@
 /*
 Copyright 2019 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,13 +31,12 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topolo
 	var cpuHints []topologymanager.TopologyHint
 	for resourceObj, amountObj := range container.Resources.Requests {
 		resource := string(resourceObj)
-		amount := int(amountObj.Value())
-		requested := int64(amount)
+		requested := int(amountObj.Value())
 		if resource != "cpu" {
 			continue
 		}
 
-		klog.Infof("[cpumanager] Guaranteed CPUs detected: %v", amount)
+		klog.Infof("[cpumanager] Guaranteed CPUs detected: %v", requested)
 
 		topo, err := topology.Discover(m.machineInfo)
 		if err != nil {
@@ -42,11 +44,16 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topolo
 		}
 
 		assignableCPUs := m.getAssignableCPUs(topo)
-		cpuAccum := newCPUAccumulator(topo, assignableCPUs, amount)
+		klog.Infof("AssignableCPUs: %v", assignableCPUs)
+		cpuAccum := newCPUAccumulator(topo, assignableCPUs, requested)
 
+		//Can we always assume NumSockets and Socket Numbers are the same?
 		socketCount := topo.NumSockets
 		klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
 		cpuHints = getCPUMask(socketCount, cpuAccum, requested)
+		admit := calculateIfCPUHasSocketAffinity(cpuHints)
+
+		klog.Infof("CPUHints; %v, Admit: %v", cpuHints, admit)
 	}
 	return cpuHints, true
 }
@@ -64,50 +71,54 @@ func (m *manager) getAssignableCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
 	return assignableCPUs
 }
 
-func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int64) []topologymanager.TopologyHint {
-	CPUsInSocketSize := make([]int64, socketCount)
-	var mask []int64
-	var totalCPUs int64 = 0
-	var cpuHintsTemp [][]int64
+func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int) []topologymanager.TopologyHint {
+	CPUsInSocketSize := make([]int, socketCount)
+	var cpuHints []topologymanager.TopologyHint
+	var totalCPUs int = 0
 	for i := 0; i < socketCount; i++ {
 		CPUsInSocket := cpuAccum.details.CPUsInSocket(i)
 		klog.Infof("[cpumanager] Assignable CPUs on Socket %v: %v", i, CPUsInSocket)
-		CPUsInSocketSize[i] = int64(CPUsInSocket.Size())
+		CPUsInSocketSize[i] = CPUsInSocket.Size()
 		totalCPUs += CPUsInSocketSize[i]
 		if CPUsInSocketSize[i] >= requested {
-			for j := 0; j < socketCount; j++ {
-				if j == i {
-					mask = append(mask, 1)
-				} else {
-					mask = append(mask, 0)
-				}
-			}
-			cpuHintsTemp = append(cpuHintsTemp, mask)
-			mask = nil
+			mask, _ := socketmask.NewSocketMask(i)
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketMask: mask})
 		}
 	}
 	if totalCPUs >= requested {
-		crossSocketMask := buildCrossSocketMask(socketCount, CPUsInSocketSize)
-		cpuHintsTemp = append(cpuHintsTemp, crossSocketMask)
+		crossSocketMask, crossSocket := buildCrossSocketMask(socketCount, CPUsInSocketSize)
+		if crossSocket {
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketMask: crossSocketMask})
+		}
+
 	}
 	klog.Infof("[cpumanager] Number of Assignable CPUs per Socket: %v", CPUsInSocketSize)
-	klog.Infof("[cpumanager] Topology Affinities for pod: %v", cpuHintsTemp)
-	cpuHints := make([]topologymanager.TopologyHint, len(cpuHintsTemp))
-	for r := range cpuHintsTemp {
-		cpuSocket := socketmask.SocketMask(cpuHintsTemp[r])
-		cpuHints[r].SocketMask = cpuSocket
-	}
+	klog.Infof("[cpumanager] Topology Affinities for pod: %v", cpuHints)
 	return cpuHints
 }
 
-func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int64) []int64 {
-	var mask []int64
+func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int) (socketmask.SocketMask, bool) {
+	var socketNums []int
+	crossSocket := true
 	for i := 0; i < socketCount; i++ {
-		if CPUsInSocketSize[i] == 0 {
-			mask = append(mask, 0)
-		} else {
-			mask = append(mask, 1)
+		if CPUsInSocketSize[i] > 0 {
+			socketNums = append(socketNums, i)
 		}
 	}
-	return mask
+	if len(socketNums) == 1 {
+		crossSocket = false
+	}
+	mask, _ := socketmask.NewSocketMask(socketNums...)
+	return mask, crossSocket
+}
+
+func calculateIfCPUHasSocketAffinity(cpuHints []topologymanager.TopologyHint) bool {
+	admit := false
+	for _, hint := range cpuHints {
+		if hint.SocketMask.Count() == 1 {
+			admit = true
+			break
+		}
+	}
+	return admit
 }
