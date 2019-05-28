@@ -42,8 +42,15 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topolo
 		if err != nil {
 			klog.Infof("[cpu manager] error discovering topology")
 		}
-
-		assignableCPUs := m.getAssignableCPUs(topo)
+		var assignableCPUs cpuset.CPUSet
+		containerID, _ := findContainerIDByName(&pod.Status, container.Name)
+		if cset, ok := m.state.GetCPUSet(containerID); ok {
+			klog.Infof("[cpumanager] Reusing pre-assigned CPUSet: %v", cset)
+			assignableCPUs = cset
+		} else {
+			// Otherwise, calculate the assignable CPUs from the topology.
+			assignableCPUs = m.getAssignableCPUs(topo)
+		}
 		klog.Infof("AssignableCPUs: %v", assignableCPUs)
 		cpuAccum := newCPUAccumulator(topo, assignableCPUs, requested)
 

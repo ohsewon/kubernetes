@@ -26,6 +26,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/socketmask"
 )
 
 // PolicyStatic is the name of the static policy
@@ -187,13 +188,7 @@ func (p *staticPolicy) AddContainer(s state.State, pod *v1.Pod, container *v1.Co
 		//Call Topology Manager to get Container affinity
 		containerTopologyHint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 		klog.Infof("[cpumanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, containerTopologyHint)
-
-		sockets := make(map[int]bool)
-		socketsArray := containerTopologyHint.SocketMask.GetSockets()
-		for _, socket := range socketsArray {
-			sockets[socket] = true
-		}
-		cpuset, err := p.allocateCPUs(s, numCPUs, sockets)
+		cpuset, err := p.allocateCPUs(s, numCPUs, containerTopologyHint.SocketMask)
 		if err != nil {
 			klog.Errorf("[cpumanager] unable to allocate %d CPUs (container id: %s, error: %v)", numCPUs, containerID, err)
 			return err
@@ -214,14 +209,13 @@ func (p *staticPolicy) RemoveContainer(s state.State, containerID string) error 
 	return nil
 }
 
-func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, sockets map[int]bool) (cpuset.CPUSet, error) {
-	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %d)", numCPUs, sockets)
+func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, socketmask socketmask.SocketMask) (cpuset.CPUSet, error) {
+	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %d)", numCPUs, socketmask)
 	assignableCPUs := cpuset.NewCPUSet()
+	sockets := socketmask.GetSockets()
 	if len(sockets) != 0 {
-		for socketID, socketAvail := range sockets {
-			if socketAvail {
-				assignableCPUs = assignableCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInSocket(socketID)))
-			}
+		for socketID, _ := range sockets {
+			assignableCPUs = assignableCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInSocket(socketID)))
 		}
 	} else {
 		assignableCPUs = p.assignableCPUs(s)
