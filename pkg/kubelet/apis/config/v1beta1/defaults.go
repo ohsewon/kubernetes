@@ -150,7 +150,7 @@ func SetDefaults_KubeletConfiguration(obj *kubeletconfigv1beta1.KubeletConfigura
 		obj.CPUManagerReconcilePeriod = metav1.Duration{Duration: 10 * time.Second}
 	}
 	if obj.TopologyManagerPolicy == "" {
-		obj.TopologyManagerPolicy = "Preferred"
+		obj.TopologyManagerPolicy = "preferred"
 	}
 	if obj.RuntimeRequestTimeout == zeroDuration {
 		obj.RuntimeRequestTimeout = metav1.Duration{Duration: 2 * time.Minute}
