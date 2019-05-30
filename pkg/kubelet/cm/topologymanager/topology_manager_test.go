@@ -264,7 +264,7 @@ func TestAdmit(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "QOSClass set as Gauranteed",
+			name:     "QOSClass set as Guaranteed",
 			result:   lifecycle.PodAdmitResult{},
 			qosClass: "Guaranteed",
 			expected: true,
@@ -292,7 +292,7 @@ func TestAdmit(t *testing.T) {
 		//c := make(containers)
 		actual := man.Admit(&podAttr)
 		if reflect.DeepEqual(actual, tc.result) {
-			t.Errorf("Error occured, expected Admit in result to be %v got %v", tc.result, actual.Admit)
+			t.Errorf("Error occurred, expected Admit in result to be %v got %v", tc.result, actual.Admit)
 		}
 	}
 }
