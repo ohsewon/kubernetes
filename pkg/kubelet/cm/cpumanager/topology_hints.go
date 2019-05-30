@@ -1,12 +1,9 @@
 /*
 Copyright 2019 The Kubernetes Authors.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-
     http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/socketmask"
 )
 
-func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topologymanager.TopologyHint, bool) {
+func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) []topologymanager.TopologyHint {
 	var cpuHints []topologymanager.TopologyHint
 	for resourceObj, amountObj := range container.Resources.Requests {
 		resource := string(resourceObj)
@@ -57,12 +54,12 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) ([]topolo
 		//Can we always assume NumSockets and Socket Numbers are the same?
 		socketCount := topo.NumSockets
 		klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
-		cpuHints = getCPUMask(socketCount, cpuAccum, requested)
-		admit := calculateIfCPUHasSocketAffinity(cpuHints)
-
-		klog.Infof("CPUHints; %v, Admit: %v", cpuHints, admit)
+		cpuHintsTemp := getCPUMask(socketCount, cpuAccum, requested)
+		CPUsPerSocket := topo.CPUsPerSocket()
+		cpuHints = getPreferred(cpuHintsTemp, requested, CPUsPerSocket)
+		klog.Infof("CPUHints: %v", cpuHints)
 	}
-	return cpuHints, true
+	return cpuHints
 }
 
 func (m *manager) getAssignableCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
@@ -89,13 +86,13 @@ func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int) []topo
 		totalCPUs += CPUsInSocketSize[i]
 		if CPUsInSocketSize[i] >= requested {
 			mask, _ := socketmask.NewSocketMask(i)
-			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketMask: mask})
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: mask, Preferred: true})
 		}
 	}
 	if totalCPUs >= requested {
 		crossSocketMask, crossSocket := buildCrossSocketMask(socketCount, CPUsInSocketSize)
 		if crossSocket {
-			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketMask: crossSocketMask})
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: crossSocketMask, Preferred: true})
 		}
 
 	}
@@ -119,13 +116,21 @@ func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int) (socketmask.S
 	return mask, crossSocket
 }
 
-func calculateIfCPUHasSocketAffinity(cpuHints []topologymanager.TopologyHint) bool {
-	admit := false
-	for _, hint := range cpuHints {
-		if hint.SocketMask.Count() == 1 {
-			admit = true
-			break
+func getPreferred(cpuHints []topologymanager.TopologyHint, requested int, CPUsPerSocket int) []topologymanager.TopologyHint {
+	bestHint := cpuHints[0].SocketAffinity.Count()
+	for r := range cpuHints {
+		if cpuHints[r].SocketAffinity.Count() < bestHint {
+			bestHint = cpuHints[r].SocketAffinity.Count()
 		}
 	}
-	return admit
+	for r := range cpuHints {
+		if cpuHints[r].SocketAffinity.Count() > bestHint {
+			cpuHints[r].Preferred = false
+			klog.Infof("Set Preferred to false: (there are more preferable hints) %v", cpuHints[r])
+		} else if cpuHints[r].SocketAffinity.Count() == bestHint && requested >= CPUsPerSocket {
+			//cpuHints[r].Preferred = false
+			klog.Infof("Set Preferred to false (could never be satisfied on one socket): %v", cpuHints[r])
+		}
+	}
+	return cpuHints
 }

@@ -27,37 +27,40 @@ import (
 )
 
 func TestGetTopologyHints(t *testing.T) {
+	firstSocketMask, _ := socketmask.NewSocketMask(0)
+	secondSocketMask, _ := socketmask.NewSocketMask(1)
+	crossSocketMask, _ := socketmask.NewSocketMask(0, 1)
 	tcases := []struct {
 		name          string
 		amount        int64
 		expectedHints []topologymanager.TopologyHint
-		expectedAdmit bool
 	}{
 		{
 			name:   "Socket Affinity includes {0, 1}, {1, 0}, {1, 1}",
 			amount: 1,
 			expectedHints: []topologymanager.TopologyHint{
 				topologymanager.TopologyHint{
-					SocketMask: socketmask.SocketMask{1, 0},
+					SocketAffinity: firstSocketMask,
+					Preferred:      true,
 				},
 				topologymanager.TopologyHint{
-					SocketMask: socketmask.SocketMask{0, 1},
+					SocketAffinity: secondSocketMask,
+					Preferred:      true,
 				},
 				topologymanager.TopologyHint{
-					SocketMask: socketmask.SocketMask{1, 1},
+					SocketAffinity: crossSocketMask,
+					Preferred:      false,
 				},
 			},
-			expectedAdmit: true,
 		},
 		{
 			name:   "Socket Affinity includes {1, 1}",
 			amount: 2,
 			expectedHints: []topologymanager.TopologyHint{
 				topologymanager.TopologyHint{
-					SocketMask: socketmask.SocketMask{1, 1},
+					SocketAffinity: crossSocketMask,
 				},
 			},
-			expectedAdmit: false,
 		},
 	}
 
@@ -73,9 +76,9 @@ func TestGetTopologyHints(t *testing.T) {
 		testResourceList[name] = *resource.NewQuantity(tc.amount, "")
 
 		testContainer.Resources.Requests = testResourceList
-		hint, admit := m.GetTopologyHints(testPod, testContainer)
-		if reflect.DeepEqual(hint, tc.expectedHints) || reflect.DeepEqual(admit, tc.expectedAdmit) {
-			t.Errorf("Expected in result to be %v and %v, got %v ad %v", tc.expectedHints, tc.expectedAdmit, hint, admit)
+		hint := m.GetTopologyHints(testPod, testContainer)
+		if reflect.DeepEqual(hint, tc.expectedHints) {
+			t.Errorf("Expected in result to be %v , got %v", tc.expectedHints, hint)
 		}
 	}
 }

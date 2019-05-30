@@ -188,6 +188,7 @@ func (p *staticPolicy) AddContainer(s state.State, pod *v1.Pod, container *v1.Co
 		//Call Topology Manager to get Container affinity
 		containerTopologyHint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 		klog.Infof("[cpumanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, containerTopologyHint)
+
 		cpuset, err := p.allocateCPUs(s, numCPUs, containerTopologyHint.SocketMask)
 		if err != nil {
 			klog.Errorf("[cpumanager] unable to allocate %d CPUs (container id: %s, error: %v)", numCPUs, containerID, err)
@@ -210,9 +211,9 @@ func (p *staticPolicy) RemoveContainer(s state.State, containerID string) error 
 }
 
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, socketmask socketmask.SocketMask) (cpuset.CPUSet, error) {
-	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %d)", numCPUs, socketmask)
+	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %v)", numCPUs, socketmask)
 	assignableCPUs := cpuset.NewCPUSet()
-	var sockets []int 
+	var sockets []int
 	if socketmask != nil {
 		sockets = socketmask.GetSockets()
 	}

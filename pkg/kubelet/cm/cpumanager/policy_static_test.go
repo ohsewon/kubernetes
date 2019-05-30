@@ -25,7 +25,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"	
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 )
 
 type staticPolicyTest struct {
