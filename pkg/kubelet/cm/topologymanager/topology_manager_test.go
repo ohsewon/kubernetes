@@ -26,6 +26,17 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
+func NewTestSocketMask(sockets ...int) socketmask.SocketMask {
+	s, _ := socketmask.NewSocketMask(sockets...)
+	return s
+}
+
+func NewTestSocketMaskFull() socketmask.SocketMask {
+	s, _ := socketmask.NewSocketMask()
+	s.Fill()
+	return s
+}
+
 func TestNewManager(t *testing.T) {
 	tcases := []struct {
 		name       string
@@ -55,10 +66,10 @@ func TestNewManager(t *testing.T) {
 }
 
 type mockHintProvider struct {
-	th TopologyHints
+	th []TopologyHint
 }
 
-func (m *mockHintProvider) GetTopologyHints(pod v1.Pod, container v1.Container) TopologyHints {
+func (m *mockHintProvider) GetTopologyHints(pod v1.Pod, container v1.Container) []TopologyHint {
 	return m.th
 }
 
@@ -67,13 +78,13 @@ func TestGetAffinity(t *testing.T) {
 		name          string
 		containerName string
 		podUID        string
-		expected      TopologyHints
+		expected      TopologyHint
 	}{
 		{
 			name:          "case1",
 			containerName: "nginx",
 			podUID:        "0aafa4c4-38e8-11e9-bcb1-a4bf01040474",
-			expected:      TopologyHints{},
+			expected:      TopologyHint{},
 		},
 	}
 	for _, tc := range tcases {
@@ -85,63 +96,383 @@ func TestGetAffinity(t *testing.T) {
 	}
 }
 
-func TestCalculateTopologyAffinity(t *testing.T) {
+func TestCalculateAffinity(t *testing.T) {
 	tcases := []struct {
 		name     string
 		hp       []HintProvider
-		expected TopologyHints
+		expected TopologyHint
 	}{
 		{
-			name: "TopologyHints not set",
+			name: "TopologyHint not set",
 			hp:   []HintProvider{},
-			expected: TopologyHints{
-				Affinity:       true,
-				SocketAffinity: nil,
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMaskFull(),
+				Preferred:      false,
 			},
 		},
 		{
-			name: "TopologyHints set with Affinity as true and SocketAffinity as nil",
+			name: "Single TopologyHint with Preferred as true and SocketAffinity as nil",
 			hp: []HintProvider{
 				&mockHintProvider{
-					TopologyHints{
-						Affinity:       true,
-						SocketAffinity: nil,
+					[]TopologyHint{
+						{
+							SocketAffinity: nil,
+							Preferred:      true,
+						},
 					},
 				},
 			},
-			expected: TopologyHints{
-				Affinity:       false,
-				SocketAffinity: nil,
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMaskFull(),
+				Preferred:      false,
 			},
 		},
 		{
-			name: "TopologyHints set with Affinity as false and SocketAffinity as not nil",
+			name: "Single TopologyHint with Preferred as false and SocketAffinity as nil",
 			hp: []HintProvider{
 				&mockHintProvider{
-					TopologyHints{
-						Affinity:       false,
-						SocketAffinity: []socketmask.SocketMask{{1, 0}, {0, 1}, {1, 1}},
+					[]TopologyHint{
+						{
+							SocketAffinity: nil,
+							Preferred:      false,
+						},
 					},
 				},
 			},
-			expected: TopologyHints{
-				Affinity:       false,
-				SocketAffinity: []socketmask.SocketMask{{1, 0}, {0, 1}, {1, 1}},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMaskFull(),
+				Preferred:      false,
 			},
 		},
 		{
-			name: "TopologyHints set with Affinity as true and SocketAffinity as not nil",
+			name: "Two providers, 1 hint each, same mask, both preferred 1/2",
 			hp: []HintProvider{
 				&mockHintProvider{
-					TopologyHints{
-						Affinity:       true,
-						SocketAffinity: []socketmask.SocketMask{{1, 0}, {0, 1}, {1, 1}},
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
 					},
 				},
 			},
-			expected: TopologyHints{
-				Affinity:       true,
-				SocketAffinity: []socketmask.SocketMask{{1, 0}, {0, 1}, {1, 1}},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, same mask, both preferred 2/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, 1 wider mask, both preferred 1/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, 1 wider mask, both preferred 1/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, no common mask",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMaskFull(),
+				Preferred:      false,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, same mask, 1 preferred, 1 not 1/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      false,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      false,
+			},
+		},
+		{
+			name: "Two providers, 1 hint each, same mask, 1 preferred, 1 not 2/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      false,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
+				Preferred:      false,
+			},
+		},
+		{
+			name: "Two providers, 1 no hints, 1 single hint preferred 1/2",
+			hp: []HintProvider{
+				&mockHintProvider{},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 no hints, 1 single hint preferred 2/2",
+			hp: []HintProvider{
+				&mockHintProvider{},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 with 2 hints, 1 with single hint matching 1/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 with 2 hints, 1 with single hint matching 2/2",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Two providers, 1 with 2 hints, 1 with single non-preferred hint matching",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      false,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      false,
+			},
+		},
+		{
+			name: "Two providers, both with 2 hints, matching narrower preferred hint from both",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      false,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
 			},
 		},
 	}
@@ -149,9 +480,12 @@ func TestCalculateTopologyAffinity(t *testing.T) {
 	for _, tc := range tcases {
 		mngr := manager{}
 		mngr.hintProviders = tc.hp
-		actual := mngr.calculateTopologyAffinity(v1.Pod{}, v1.Container{})
-		if !reflect.DeepEqual(actual.Affinity, tc.expected.Affinity) {
-			t.Errorf("Expected Affinity in result to be %v, got %v", tc.expected.Affinity, actual.Affinity)
+		actual := mngr.calculateAffinity(v1.Pod{}, v1.Container{})
+		if !actual.SocketAffinity.IsEqual(tc.expected.SocketAffinity) {
+			t.Errorf("Expected SocketAffinity in result to be %v, got %v", tc.expected.SocketAffinity, actual.SocketAffinity)
+		}
+		if actual.Preferred != tc.expected.Preferred {
+			t.Errorf("Expected Affinity preference in result to be %v, got %v", tc.expected.Preferred, actual.Preferred)
 		}
 	}
 }
@@ -235,12 +569,7 @@ func TestAddHintProvider(t *testing.T) {
 		{
 			name: "Add HintProvider",
 			hp: []HintProvider{
-				&mockHintProvider{
-					TopologyHints{
-						Affinity:       true,
-						SocketAffinity: nil,
-					},
-				},
+				&mockHintProvider{},
 			},
 		},
 	}
