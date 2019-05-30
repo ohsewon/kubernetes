@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"	
 )
 
 type staticPolicyTest struct {
@@ -42,7 +43,7 @@ type staticPolicyTest struct {
 }
 
 func TestStaticPolicyName(t *testing.T) {
-	policy := NewStaticPolicy(topoSingleSocketHT, 1)
+	policy := NewStaticPolicy(topoSingleSocketHT, 1, topologymanager.NewFakeManager())
 
 	policyName := policy.Name()
 	if policyName != "static" {
@@ -119,7 +120,7 @@ func TestStaticPolicyStart(t *testing.T) {
 					t.Error("expected panic doesn't occurred")
 				}
 			}()
-			policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs).(*staticPolicy)
+			policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs, topologymanager.NewFakeManager()).(*staticPolicy)
 			st := &mockState{
 				assignments:   testCase.stAssignments,
 				defaultCPUSet: testCase.stDefaultCPUSet,
@@ -403,7 +404,7 @@ func TestStaticPolicyAdd(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs)
+		policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs, topologymanager.NewFakeManager())
 
 		st := &mockState{
 			assignments:   testCase.stAssignments,
@@ -492,7 +493,7 @@ func TestStaticPolicyRemove(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs)
+		policy := NewStaticPolicy(testCase.topo, testCase.numReservedCPUs, topologymanager.NewFakeManager())
 
 		st := &mockState{
 			assignments:   testCase.stAssignments,

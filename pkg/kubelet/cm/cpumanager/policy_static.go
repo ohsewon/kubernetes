@@ -212,7 +212,10 @@ func (p *staticPolicy) RemoveContainer(s state.State, containerID string) error 
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, socketmask socketmask.SocketMask) (cpuset.CPUSet, error) {
 	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %d)", numCPUs, socketmask)
 	assignableCPUs := cpuset.NewCPUSet()
-	sockets := socketmask.GetSockets()
+	var sockets []int 
+	if socketmask != nil {
+		sockets = socketmask.GetSockets()
+	}
 	if len(sockets) != 0 {
 		for socketID, _ := range sockets {
 			assignableCPUs = assignableCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInSocket(socketID)))
