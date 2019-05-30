@@ -69,14 +69,12 @@ type TopologyHint struct {
 }
 var _ Manager = &manager{}
 
-type policyName string
-
 //NewManager creates a new TopologyManager based on provided policy
 func NewManager(topologyPolicyName string) Manager {
 	klog.Infof("[topologymanager] Creating topology manager with %s policy", topologyPolicyName)
 	var policy Policy
 
-	switch policyName(topologyPolicyName) {
+	switch topologyPolicyName {
 
 	case PolicyPreferred:
 		policy = NewPreferredPolicy()
