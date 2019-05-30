@@ -39,12 +39,13 @@ func TestFakeGetAffinity(t *testing.T) {
 		name          string
 		containerName string
 		podUID        string
-		expected      TopologyHints
+		expected      TopologyHint
 	}{
 		{
 			name:          "Case1",
 			containerName: "nginx",
 			podUID:        "0aafa4c4-38e8-11e9-bcb1-a4bf01040474",
+			expected:      TopologyHint{},
 		},
 	}
 	for _, tc := range tcases {
