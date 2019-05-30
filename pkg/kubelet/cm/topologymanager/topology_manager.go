@@ -104,57 +104,124 @@ func (m *manager) GetAffinity(podUID string, containerName string) TopologyHint 
 	return m.podTopologyHints[podUID][containerName]
 }
 
-func (m *manager) calculateAffinity(pod v1.Pod, container v1.Container) (TopologyHint, bool) {
-	admitPod := true
-	firstHintProvider := true
-	var containerHints []TopologyHint
-	for _, hp := range m.hintProviders {
-		topologyHints, admit := hp.GetTopologyHints(pod, container)
-		if !admit && topologyHints == nil {
-			klog.Infof("[topologymanager] Hint Provider does not care about this container")
-			continue
+// Iterate over all permutations of hints in 'allProviderHints [][]TopologyHint'.
+//
+// This procedure is implemented as a recursive function over the set of hints
+// in 'allproviderHints[i]'. It applies the function 'callback' to each
+// permutation as it is found. It is the equivalent of:
+//
+// for i := 0; i < len(providerHints[0]); i++
+//     for j := 0; j < len(providerHints[1]); j++
+//         for k := 0; k < len(providerHints[2]); k++
+//             ...
+//             for z := 0; z < len(providerHints[-1]); z++
+//                 permutation := []TopologyHint{
+//                     providerHints[0][i],
+//                     providerHints[1][j],
+//                     providerHints[2][k],
+//                     ...
+//                     provideryHints[-1][z]
+//                 }
+//                 callback(permutation)
+func (m *manager) iterateAllProviderTopologyHints(allProviderHints [][]TopologyHint, callback func([]TopologyHint)) {
+	// Internal helper function to accumulate the permutation before calling the callback.
+	var iterate func(i int, accum []TopologyHint)
+	iterate = func(i int, accum []TopologyHint) {
+		// Base case: we have looped through all providers and have a full permutation.
+		if i == len(allProviderHints) {
+			callback(accum)
+			return
 		}
-		var tempMask []TopologyHint
-		for _, hint := range topologyHints {
-			klog.Infof("Hint: %v", hint)
-			if firstHintProvider {
-				tempMask = append(tempMask, hint)
-			} else {
-				for _, storedHint := range containerHints {
-					if storedHint.SocketMask.IsEqual(hint.SocketMask) {
-						klog.Infof("Masks equal")
-						tempMask = append(tempMask, hint)
-						break
-					}
+
+		// Loop through all hints for provider 'i', and recurse to build the
+		// the permutation of this hint with all hints from providers 'i++'.
+		for j := range allProviderHints[i] {
+			iterate(i+1, append(accum, allProviderHints[i][j]))
+		}
+	}
+	iterate(0, []TopologyHint{})
+}
+
+// Merge the hints from all hint providers to find the best one.
+func (m *manager) calculateAffinity(pod v1.Pod, container v1.Container) TopologyHint {
+	// Set the default hint to return from this function as an any-socket
+	// affinity with an unpreferred allocation. This will only be returned if
+	// no better hint can be found when merging hints from each hint provider.
+	defaultAffinity, _ := socketmask.NewSocketMask()
+	defaultAffinity.Fill()
+	defaultHint := TopologyHint{defaultAffinity, false}
+
+	// Loop through all hint providers and save an accumulated list of the
+	// hints returned by each hint provider. If no hints are provided, assume
+	// that provider has no preference for topology-aware allocation.
+	var allProviderHints [][]TopologyHint
+	for _, provider := range m.hintProviders {
+		// Get the TopologyHints from a provider.
+		hints := provider.GetTopologyHints(pod, container)
+
+		// If hints is nil, overwrite 'hints' with a preferred any-socket affinity.
+		if hints == nil {
+			klog.Infof("[topologymanager] Hint Provider has no preference for socket affinity")
+			affinity, _ := socketmask.NewSocketMask()
+			affinity.Fill()
+			hints = []TopologyHint{{affinity, true}}
+		}
+
+		// Accumulate the sorted hints into a [][]TopologyHint slice
+		allProviderHints = append(allProviderHints, hints)
+	}
+
+	// Iterate over all permutations of hints in 'allProviderHints'. Merge the
+	// hints in each permutation by taking the bitwise-and of their affinity masks.
+	// Return the hint with the narrowest SocketAffinity of all merged
+	// permutations that have at least one socket set. If no merged mask can be
+	// found that has at least one socket set, return the 'defaultHint'.
+	bestHint := defaultHint
+	m.iterateAllProviderTopologyHints(allProviderHints, func(permutation []TopologyHint) {
+		// Get the SocketAffinity from each hint in the permutation and see if any
+		// of them encode unpreferred allocations.
+		preferred := true
+		var socketAffinities []socketmask.SocketMask
+		for _, hint := range permutation {
+			// Only consider hints that have an actual SocketAffinity set.
+			if hint.SocketAffinity != nil {
+				if !hint.Preferred {
+					preferred = false
 				}
+				socketAffinities = append(socketAffinities, hint.SocketAffinity)
 			}
 		}
-		containerHints = tempMask
-		tempMask = nil
-		firstHintProvider = false
 
-		klog.Infof("ContainerHints: %v", containerHints)
+		// Merge the affinities using a bitwise-and operation.
+		mergedAffinity, _ := socketmask.NewSocketMask()
+		mergedAffinity.Fill()
+		mergedAffinity.And(socketAffinities...)
 
-	}
-	filledMask, _ := socketmask.NewSocketMask()
-	filledMask.Fill()
-	numBitsSet := filledMask.Count()
-	var containerTopologyHint TopologyHint
-	for _, hint := range containerHints {
-		if hint.SocketMask.Count() < numBitsSet {
-			numBitsSet = hint.SocketMask.Count()
-			containerTopologyHint = hint
+		// Build a mergedHintfrom the merged affinity mask, indicating if an
+		// preferred allocation was used to generate the affinity mask or not.
+		mergedHint := TopologyHint{mergedAffinity, preferred}
+
+		// Only consider mergedHints that result in a SocketAffinity > 0 to
+		// replace the current bestHint.
+		if mergedHint.SocketAffinity.Count() == 0 {
+			return
 		}
-	}
 
-	if containerTopologyHint.SocketMask.Count() > 1 {
-		klog.Infof("Cross Socket Affinity.")
-		admitPod = false
-	}
+		// Only consider mergedHints that have a narrower SocketAffinity than
+		// the SocketAffinityi in the current bestHint as a replacement for the
+		// current bestHint.
+		if !mergedHint.SocketAffinity.IsNarrowerThan(bestHint.SocketAffinity) {
+			return
+		}
 
-	klog.Infof("[topologymanager] ContainerTopologyHint: %v AdmitPod: %v", containerTopologyHint, admitPod)
+		// If we made it past all the checks above, set the new bestHint as the
+		// current mergedHint.
+		bestHint = mergedHint
+	})
 
-	return containerTopologyHint, admitPod
+	klog.Infof("[topologymanager] ContainerTopologyHint: %v", bestHint)
+
+	return bestHint
 }
 
 func (m *manager) AddHintProvider(h HintProvider) {
@@ -182,8 +249,8 @@ func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 
 	if pod.Status.QOSClass == v1.PodQOSGuaranteed {
 		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-			result, admit := m.calculateAffinity(*pod, container)
-			admitPod := m.policy.CanAdmitPodResult(admit)
+			result := m.calculateAffinity(*pod, container)
+			admitPod := m.policy.CanAdmitPodResult(result.Preferred)
 			if admitPod.Admit == false {
 				return admitPod
 			}
