@@ -595,19 +595,19 @@ func TestAdmit(t *testing.T) {
 		{
 			name:     "QOSClass set as Guaranteed",
 			result:   lifecycle.PodAdmitResult{},
-			qosClass: "Guaranteed",
+			qosClass: v1.PodQOSGuaranteed,
 			expected: true,
 		},
 		{
 			name:     "QOSClass set as Burstable",
 			result:   lifecycle.PodAdmitResult{},
-			qosClass: "Burstable",
+			qosClass: v1.PodQOSBurstable,
 			expected: true,
 		},
 		{
 			name:     "QOSClass set as BestEffort",
 			result:   lifecycle.PodAdmitResult{},
-			qosClass: "BestEffort",
+			qosClass: v1.PodQOSBestEffort,
 			expected: true,
 		},
 	}
