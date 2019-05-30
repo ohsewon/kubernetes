@@ -41,9 +41,11 @@ type Manager interface {
 type manager struct {
 	//The list of components registered with the Manager
 	hintProviders []HintProvider
-	//List of Containers and their Topology Allocations
-	podTopologyHints map[string]containers
-	podMap           map[string]string
+	//Mapping of a Pods mapping of Containers and their TopologyHints
+	//Indexed by PodUID to ContainerName
+	podTopologyHints map[string]map[string]TopologyHint
+	//Mapping of PodUID to ContainerID for Adding/Removing Pods from PodTopologyHints mapping
+	podMap map[string]string
 	//Topology Manager Policy
 	policy Policy
 }
@@ -65,9 +67,6 @@ type TopologyHint struct {
 	// allocation for the Container. It is set to false otherwise.
 	Preferred bool
 }
-
-type containers map[string]TopologyHint
-
 var _ Manager = &manager{}
 
 type policyName string
@@ -86,16 +85,16 @@ func NewManager(topologyPolicyName string) Manager {
 		policy = NewStrictPolicy()
 
 	default:
-		klog.Errorf("[topologymanager] Unknow policy %s, using default policy %s", topologyPolicyName, PolicyPreferred)
+		klog.Errorf("[topologymanager] Unknown policy %s, using default policy %s", topologyPolicyName, PolicyPreferred)
 		policy = NewPreferredPolicy()
 	}
 
 	var hp []HintProvider
-	pnh := make(map[string]containers)
+	pth := make(map[string]map[string]TopologyHint)
 	pm := make(map[string]string)
 	manager := &manager{
 		hintProviders:    hp,
-		podTopologyHints: pnh,
+		podTopologyHints: pth,
 		podMap:           pm,
 		policy:           policy,
 	}
@@ -107,7 +106,7 @@ func (m *manager) GetAffinity(podUID string, containerName string) TopologyHint 
 	return m.podTopologyHints[podUID][containerName]
 }
 
-func (m *manager) calculateTopologyAffinity(pod v1.Pod, container v1.Container) (TopologyHint, bool) {
+func (m *manager) calculateAffinity(pod v1.Pod, container v1.Container) (TopologyHint, bool) {
 	admitPod := true
 	firstHintProvider := true
 	var containerHints []TopologyHint
@@ -180,14 +179,12 @@ func (m *manager) RemoveContainer(containerID string) error {
 func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitResult {
 	klog.Infof("[topologymanager] Topology Admit Handler")
 	pod := attrs.Pod
-	c := make(containers)
+	c := make(map[string]TopologyHint)
 	klog.Infof("[topologymanager] Pod QoS Level: %v", pod.Status.QOSClass)
 
-	qosClass := pod.Status.QOSClass
-
-	if qosClass == "Guaranteed" {
+	if pod.Status.QOSClass == v1.PodQOSGuaranteed {
 		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-			result, admit := m.calculateTopologyAffinity(*pod, container)
+			result, admit := m.calculateAffinity(*pod, container)
 			admitPod := m.policy.CanAdmitPodResult(admit)
 			if admitPod.Admit == false {
 				return admitPod

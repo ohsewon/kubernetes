@@ -284,7 +284,7 @@ func TestAdmit(t *testing.T) {
 	}
 	for _, tc := range tcases {
 		man := manager{}
-		man.podTopologyHints = make(map[string]containers)
+		man.podTopologyHints = make(map[string]map[string]TopologyHint)
 		podAttr := lifecycle.PodAdmitAttributes{}
 		pod := v1.Pod{}
 		pod.Status.QOSClass = tc.qosClass

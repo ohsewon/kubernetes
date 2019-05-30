@@ -147,7 +147,7 @@ func TestFakeAdmit(t *testing.T) {
 	fm := fakeManager{}
 	for _, tc := range tcases {
 		mngr := manager{}
-		mngr.podTopologyHints = make(map[string]containers)
+		mngr.podTopologyHints = make(map[string]map[string]TopologyHint)
 		podAttr := lifecycle.PodAdmitAttributes{}
 		pod := v1.Pod{}
 		pod.Status.QOSClass = tc.qosClass
