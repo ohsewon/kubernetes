@@ -107,7 +107,7 @@ func TestCalculateAffinity(t *testing.T) {
 			hp:   []HintProvider{},
 			expected: TopologyHint{
 				SocketAffinity: NewTestSocketMaskFull(),
-				Preferred:      false,
+				Preferred:      true,
 			},
 		},
 		{
@@ -124,7 +124,7 @@ func TestCalculateAffinity(t *testing.T) {
 			},
 			expected: TopologyHint{
 				SocketAffinity: NewTestSocketMaskFull(),
-				Preferred:      false,
+				Preferred:      true,
 			},
 		},
 		{
@@ -141,7 +141,7 @@ func TestCalculateAffinity(t *testing.T) {
 			},
 			expected: TopologyHint{
 				SocketAffinity: NewTestSocketMaskFull(),
-				Preferred:      false,
+				Preferred:      true,
 			},
 		},
 		{
@@ -472,6 +472,43 @@ func TestCalculateAffinity(t *testing.T) {
 			},
 			expected: TopologyHint{
 				SocketAffinity: NewTestSocketMask(0),
+				Preferred:      true,
+			},
+		},
+		{
+			name: "Ensure less narrow preferred hints are chosen over narrower non-preferred hints",
+			hp: []HintProvider{
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      false,
+						},
+					},
+				},
+				&mockHintProvider{
+					[]TopologyHint{
+						{
+							SocketAffinity: NewTestSocketMask(0),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(1),
+							Preferred:      true,
+						},
+						{
+							SocketAffinity: NewTestSocketMask(0, 1),
+							Preferred:      false,
+						},
+					},
+				},
+			},
+			expected: TopologyHint{
+				SocketAffinity: NewTestSocketMask(1),
 				Preferred:      true,
 			},
 		},

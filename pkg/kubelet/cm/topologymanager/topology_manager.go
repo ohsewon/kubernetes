@@ -207,15 +207,28 @@ func (m *manager) calculateAffinity(pod v1.Pod, container v1.Container) Topology
 			return
 		}
 
-		// Only consider mergedHints that have a narrower SocketAffinity than
-		// the SocketAffinityi in the current bestHint as a replacement for the
-		// current bestHint.
+		// If the current bestHint is non-preferred and the new mergedHint is
+		// preferred, always choose the preferred hint over the non-preferred one.
+		if mergedHint.Preferred && !bestHint.Preferred {
+			bestHint = mergedHint
+			return
+		}
+
+		// If the current bestHint is preferred and the new mergedHint is
+		// non-preferred, never update bestHint, regardless of mergedHint's
+		// narowness.
+		if !mergedHint.Preferred && bestHint.Preferred {
+			return
+		}
+
+		// If mergedHint and bestHint has the same preference, only consider
+		// mergedHints that have a narrower SocketAffinity than the
+		// SocketAffinity in the current bestHint.
 		if !mergedHint.SocketAffinity.IsNarrowerThan(bestHint.SocketAffinity) {
 			return
 		}
 
-		// If we made it past all the checks above, set the new bestHint as the
-		// current mergedHint.
+		// In all other cases, update bestHint to the current mergedHint
 		bestHint = mergedHint
 	})
 
