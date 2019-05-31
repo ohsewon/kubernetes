@@ -41,6 +41,7 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) []topolog
 		topo, err := topology.Discover(m.machineInfo)
 		if err != nil {
 			klog.Infof("[cpu manager] error discovering topology")
+			continue
 		}
 		var assignableCPUs cpuset.CPUSet
 		containerID, _ := findContainerIDByName(&pod.Status, container.Name)
