@@ -45,7 +45,7 @@ func (i *internalContainerLifecycleImpl) PreStartContainer(pod *v1.Pod, containe
 		}
 	}
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.TopologyManager) {
-		err := i.topologyManager.AddPod(pod, containerID)
+		err := i.topologyManager.AddContainer(pod, containerID)
 		if err != nil {
 			return err
 		}

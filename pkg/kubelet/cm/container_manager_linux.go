@@ -298,8 +298,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 
 	klog.Infof("Creating device plugin manager: %t", devicePluginEnabled)
 	if devicePluginEnabled {
-		cm.deviceManager, err = devicemanager.NewManagerImpl(cm.topologyManager)
-		cm.topologyManager.AddHintProvider(cm.deviceManager)
+		cm.deviceManager, err = devicemanager.NewManagerImpl()
 	} else {
 		cm.deviceManager, err = devicemanager.NewManagerStub()
 	}
@@ -315,13 +314,11 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 			machineInfo,
 			cm.GetNodeAllocatableReservation(),
 			nodeConfig.KubeletRootDir,
-			cm.topologyManager,
 		)
 		if err != nil {
 			klog.Errorf("failed to initialize cpu manager: %v", err)
 			return nil, err
 		}
-		cm.topologyManager.AddHintProvider(cm.cpuManager)
 	}
 
 	return cm, nil
