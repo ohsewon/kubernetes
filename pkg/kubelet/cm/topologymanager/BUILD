@@ -40,6 +40,8 @@ go_test(
     name = "go_default_test",
     srcs = [
         "fake_topology_manager_test.go",
+        "policy_preferred_test.go",
+        "policy_strict_test.go",
         "topology_manager_test.go",
     ],
     embed = [":go_default_library"],

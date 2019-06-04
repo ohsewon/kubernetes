@@ -52,7 +52,7 @@ type manager struct {
 
 //HintProvider interface is to be implemented by Hint Providers
 type HintProvider interface {
-	GetTopologyHints(pod v1.Pod, container v1.Container) ([]TopologyHint, bool)
+	GetTopologyHints(pod v1.Pod, container v1.Container) []TopologyHint
 }
 
 //Store interface is to allow Hint Providers to retrieve pod affinity
@@ -67,6 +67,7 @@ type TopologyHint struct {
 	// allocation for the Container. It is set to false otherwise.
 	Preferred bool
 }
+
 var _ Manager = &manager{}
 
 //NewManager creates a new TopologyManager based on provided policy
