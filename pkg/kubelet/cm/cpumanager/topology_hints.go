@@ -59,8 +59,10 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) []topolog
 		socketCount := topo.NumSockets
 		klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
 		cpuHintsTemp := getCPUMask(socketCount, cpuAccum, requested)
-		CPUsPerSocket := topo.CPUsPerSocket()
-		cpuHints = getPreferred(cpuHintsTemp, requested, CPUsPerSocket)
+		if cpuHintsTemp != nil {
+			CPUsPerSocket := topo.CPUsPerSocket()
+			cpuHints = getPreferred(cpuHintsTemp, requested, CPUsPerSocket)
+		}
 		klog.Infof("CPUHints: %v", cpuHints)
 	}
 	return cpuHints
