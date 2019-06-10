@@ -218,7 +218,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, socketmask socke
 		sockets = socketmask.GetSockets()
 	}
 	if len(sockets) != 0 {
-		for socketID, _ := range sockets {
+		for _, socketID := range sockets {
 			assignableCPUs = assignableCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInSocket(socketID)))
 		}
 	} else {
