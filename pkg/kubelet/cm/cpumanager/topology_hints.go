@@ -31,87 +31,123 @@ func (m *manager) GetTopologyHints(pod v1.Pod, container v1.Container) []topolog
 	var cpuHints []topologymanager.TopologyHint
 	for resourceObj, amountObj := range container.Resources.Requests {
 		resource := string(resourceObj)
-		requested := int(amountObj.Value())
 		if resource != "cpu" {
 			continue
 		}
 
+		// Get a count of how many CPUs have been requested
+		requested := int(amountObj.Value())
 		klog.Infof("[cpumanager] Guaranteed CPUs detected: %v", requested)
 
+		// Discover topology in order to establish the number
+		// of available CPUs per socket.
 		topo, err := topology.Discover(m.machineInfo)
 		if err != nil {
 			klog.Infof("[cpu manager] error discovering topology")
 			continue
 		}
-		var assignableCPUs cpuset.CPUSet
+		reserved := m.getReservedCPUs(topo)
 		containerID, _ := findContainerIDByName(&pod.Status, container.Name)
-		if cset, ok := m.state.GetCPUSet(containerID); ok {
-			klog.Infof("[cpumanager] Reusing pre-assigned CPUSet: %v", cset)
-			assignableCPUs = cset
-		} else {
-			// Otherwise, calculate the assignable CPUs from the topology.
-			assignableCPUs = m.getAssignableCPUs(topo)
-		}
-		klog.Infof("AssignableCPUs: %v", assignableCPUs)
-		cpuAccum := newCPUAccumulator(topo, assignableCPUs, requested)
-
-		//Can we always assume NumSockets and Socket Numbers are the same?
+		availableCPUs := m.getAvailableCPUs(containerID, reserved)
+		cpuAccum := newCPUAccumulator(topo, availableCPUs, requested)
 		socketCount := topo.NumSockets
-		klog.Infof("[cpumanager] Number of sockets on machine (available and unavailable): %v", socketCount)
-		cpuHintsTemp := getCPUMask(socketCount, cpuAccum, requested)
-		if cpuHintsTemp != nil {
-			CPUsPerSocket := topo.CPUsPerSocket()
-			cpuHints = getPreferred(cpuHintsTemp, requested, CPUsPerSocket)
+		cpusPerSocket := getCPUsPerSocket(socketCount, cpuAccum)
+		klog.Infof("[cpumanager] Number of Available CPUs per Socket: %v", cpusPerSocket)
+
+		// Build cpuHintsAffinity []TopologyHint from all possible socket combinations where the
+		// request for CPUs can be granted, agnostic to what hints are/are not Preferred.
+		cpuHintsAffinity := getCPUHintsAffinity(cpusPerSocket, requested)
+
+		if cpuHintsAffinity != nil {
+			// Create new CPU Accumulator in order to find mostCPUs.
+			cpuAccumStandard := newCPUAccumulator(topo, topo.CPUDetails.CPUs().Difference(reserved), requested)
+			// mostCPUs is the largest number of CPUs on any one socket assuming
+			// all CPUs (minus reserved CPUs) are available.
+			mostCPUs := getMostCPUs(cpuAccumStandard, socketCount)
+
+			// Assign 'Preferred: true/false' values for each hint.
+			cpuHints = getCPUHintsPreferred(cpuHintsAffinity, requested, mostCPUs)
 		}
-		klog.Infof("CPUHints: %v", cpuHints)
 	}
+	klog.Infof("[cpumanager] Topology Hints for pod: %v", cpuHints)
 	return cpuHints
 }
 
-func (m *manager) getAssignableCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
+func (m *manager) getReservedCPUs(topo *topology.CPUTopology) cpuset.CPUSet {
 	allCPUs := topo.CPUDetails.CPUs()
-	klog.Infof("[cpumanager] Shared CPUs: %v", allCPUs)
 	reservedCPUs := m.nodeAllocatableReservation[v1.ResourceCPU]
 	reservedCPUsFloat := float64(reservedCPUs.MilliValue()) / 1000
 	numReservedCPUs := int(math.Ceil(reservedCPUsFloat))
 	reserved, _ := takeByTopology(topo, allCPUs, numReservedCPUs)
 	klog.Infof("[cpumanager] Reserved CPUs: %v", reserved)
-	assignableCPUs := m.state.GetDefaultCPUSet().Difference(reserved)
-	klog.Infof("[cpumanager] Assignable CPUs (Shared - Reserved): %v", assignableCPUs)
-	return assignableCPUs
+	return reserved
 }
 
-func getCPUMask(socketCount int, cpuAccum *cpuAccumulator, requested int) []topologymanager.TopologyHint {
-	CPUsInSocketSize := make([]int, socketCount)
+func (m *manager) getAvailableCPUs(containerID string, reserved cpuset.CPUSet) cpuset.CPUSet {
+	var availableCPUs cpuset.CPUSet
+	if cset, ok := m.state.GetCPUSet(containerID); ok {
+		klog.Infof("[cpumanager] Reusing pre-assigned CPUSet: %v", cset)
+		availableCPUs = cset
+	} else {
+		// Otherwise, calculate the available CPUs from the topology.
+		availableCPUs = m.state.GetDefaultCPUSet().Difference(reserved)
+	}
+	return availableCPUs
+}
+
+func getCPUHintsAffinity(cpusPerSocket []int, requested int) []topologymanager.TopologyHint {
 	var cpuHints []topologymanager.TopologyHint
 	var totalCPUs int = 0
-	for i := 0; i < socketCount; i++ {
-		CPUsInSocket := cpuAccum.details.CPUsInSocket(i)
-		klog.Infof("[cpumanager] Assignable CPUs on Socket %v: %v", i, CPUsInSocket)
-		CPUsInSocketSize[i] = CPUsInSocket.Size()
-		totalCPUs += CPUsInSocketSize[i]
-		if CPUsInSocketSize[i] >= requested {
+	for i := 0; i < len(cpusPerSocket); i++ {
+		totalCPUs += cpusPerSocket[i]
+		if cpusPerSocket[i] >= requested {
 			mask, _ := socketmask.NewSocketMask(i)
-			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: mask, Preferred: true})
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: mask})
 		}
 	}
 	if totalCPUs >= requested {
-		crossSocketMask, crossSocket := buildCrossSocketMask(socketCount, CPUsInSocketSize)
+		crossSocketMask, crossSocket := buildCrossSocketMask(len(cpusPerSocket), cpusPerSocket)
 		if crossSocket {
-			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: crossSocketMask, Preferred: true})
+			cpuHints = append(cpuHints, topologymanager.TopologyHint{SocketAffinity: crossSocketMask})
 		}
 
 	}
-	klog.Infof("[cpumanager] Number of Assignable CPUs per Socket: %v", CPUsInSocketSize)
-	klog.Infof("[cpumanager] Topology Affinities for pod: %v", cpuHints)
 	return cpuHints
 }
 
-func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int) (socketmask.SocketMask, bool) {
+func getCPUHintsPreferred(cpuHints []topologymanager.TopologyHint, requested int, mostCPUs int) []topologymanager.TopologyHint {
+	// Check all hints for the hint with the lowest number of sockets (bestHint).
+	bestHint := cpuHints[0].SocketAffinity.Count()
+	for r := range cpuHints {
+		if cpuHints[r].SocketAffinity.Count() < bestHint {
+			bestHint = cpuHints[r].SocketAffinity.Count()
+		}
+	}
+	// Iterate over all hints and set 'Preferred: true/false' for each hint
+	for r := range cpuHints {
+		if cpuHints[r].SocketAffinity.Count() <= bestHint && requested <= mostCPUs {
+			// In the event that the hint has a lower or equal number of sockets to bestHint
+			// and one or more of those sockets could individually satisfy the number of CPUs
+			// requested, assuming all CPUs on the socket (minus reserved CPUs) are available,
+			// set hint to 'Preferred: true'.
+			cpuHints[r].Preferred = true
+		} else {
+			// In all other scenarios - 'Preferred: false'.
+			// Eg: If the number of sockets in the hint is larger than that of bestHint,
+			// then there is a more preferrable hint available.
+			// Eg: No socket could ever satisfy the request individually, assuming
+			// all CPUs on that socket (minus reserved CPUs) were available.
+			cpuHints[r].Preferred = false
+		}
+	}
+	return cpuHints
+}
+
+func buildCrossSocketMask(socketCount int, cpusPerSocket []int) (socketmask.SocketMask, bool) {
 	var socketNums []int
 	crossSocket := true
 	for i := 0; i < socketCount; i++ {
-		if CPUsInSocketSize[i] > 0 {
+		if cpusPerSocket[i] > 0 {
 			socketNums = append(socketNums, i)
 		}
 	}
@@ -122,21 +158,22 @@ func buildCrossSocketMask(socketCount int, CPUsInSocketSize []int) (socketmask.S
 	return mask, crossSocket
 }
 
-func getPreferred(cpuHints []topologymanager.TopologyHint, requested int, CPUsPerSocket int) []topologymanager.TopologyHint {
-	bestHint := cpuHints[0].SocketAffinity.Count()
-	for r := range cpuHints {
-		if cpuHints[r].SocketAffinity.Count() < bestHint {
-			bestHint = cpuHints[r].SocketAffinity.Count()
+func getMostCPUs(cpuAccum *cpuAccumulator, socketCount int) int {
+	cpusPerSocket := getCPUsPerSocket(socketCount, cpuAccum)
+	mostCPUs := cpusPerSocket[0]
+	for r := range cpusPerSocket {
+		if cpusPerSocket[r] > mostCPUs {
+			mostCPUs = cpusPerSocket[r]
 		}
 	}
-	for r := range cpuHints {
-		if cpuHints[r].SocketAffinity.Count() > bestHint {
-			cpuHints[r].Preferred = false
-			klog.Infof("Set Preferred to false: (there are more preferable hints) %v", cpuHints[r])
-		} else if cpuHints[r].SocketAffinity.Count() == bestHint && requested >= CPUsPerSocket {
-			cpuHints[r].Preferred = false
-			klog.Infof("Set Preferred to false (could never be satisfied on one socket): %v", cpuHints[r])
-		}
+	return mostCPUs
+}
+
+func getCPUsPerSocket(socketCount int, cpuAccum *cpuAccumulator) []int {
+	CPUsPerSocket := make([]int, socketCount)
+	for i := 0; i < socketCount; i++ {
+		CPUsInSocket := cpuAccum.details.CPUsInSocket(i)
+		CPUsPerSocket[i] = CPUsInSocket.Size()
 	}
-	return cpuHints
+	return CPUsPerSocket
 }
