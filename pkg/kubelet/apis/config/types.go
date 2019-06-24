@@ -197,6 +197,9 @@ type KubeletConfiguration struct {
 	// CPU Manager reconciliation period.
 	// Requires the CPUManager feature gate to be enabled.
 	CPUManagerReconcilePeriod metav1.Duration
+	// TopologyManagerPolicy is the name of the policy to use.
+	// Requires the TopologyManager feature gate to be enabled.
+	TopologyManagerPolicy string
 	// Map of QoS resource reservation percentages (memory only for now).
 	// Requires the QOSReserved feature gate to be enabled.
 	QOSReserved map[string]string
