@@ -50,6 +50,7 @@ import (
 	cputopology "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/hugepagehandler"
 	cmutil "k8s.io/kubernetes/pkg/kubelet/cm/util"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
@@ -135,6 +136,8 @@ type containerManagerImpl struct {
 	cpuManager cpumanager.Manager
 	// Interface for Topology resource co-ordination
 	topologyManager topologymanager.Manager
+	// Interface for Hugepage handler
+	hugepageHandler hugepagehandler.Handler
 }
 
 type features struct {
@@ -331,6 +334,12 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		cm.topologyManager.AddHintProvider(cm.cpuManager)
 	}
 
+	cm.hugepageHandler, err = hugepagehandler.NewHandler()
+	if err != nil {
+		klog.Errorf("failed to initialize hugepage handler: %v", err)
+		return nil, err
+	}
+
 	return cm, nil
 }
 
@@ -354,7 +363,7 @@ func (cm *containerManagerImpl) NewPodContainerManager() PodContainerManager {
 }
 
 func (cm *containerManagerImpl) InternalContainerLifecycle() InternalContainerLifecycle {
-	return &internalContainerLifecycleImpl{cm.cpuManager, cm.topologyManager}
+	return &internalContainerLifecycleImpl{cm.cpuManager, cm.topologyManager, cm.hugepageHandler}
 }
 
 // Create a cgroup container manager.
@@ -575,6 +584,8 @@ func (cm *containerManagerImpl) Start(node *v1.Node,
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.CPUManager) {
 		cm.cpuManager.Start(cpumanager.ActivePodsFunc(activePods), podStatusProvider, runtimeService)
 	}
+	
+	cm.hugepageHandler.Start(runtimeService)
 
 	// cache the node Info including resource capacity and
 	// allocatable of the node
