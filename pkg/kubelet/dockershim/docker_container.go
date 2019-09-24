@@ -437,17 +437,26 @@ func (ds *dockerService) ContainerStatus(_ context.Context, req *runtimeapi.Cont
 
 func (ds *dockerService) UpdateContainerResources(_ context.Context, r *runtimeapi.UpdateContainerResourcesRequest) (*runtimeapi.UpdateContainerResourcesResponse, error) {
 	resources := r.Linux
-	updateConfig := dockercontainer.UpdateConfig{
-		Resources: dockercontainer.Resources{
-			CPUPeriod:  resources.CpuPeriod,
-			CPUQuota:   resources.CpuQuota,
-			CPUShares:  resources.CpuShares,
-			Memory:     resources.MemoryLimitInBytes,
-			CpusetCpus: resources.CpusetCpus,
-			CpusetMems: resources.CpusetMems,
-		},
+	hugepageLimits := []dockercontainer.HugepageLimit{}
+
+	for _, hugepageLimit := range resources.HugepageLimits {
+		hugepageLimits = append(hugepageLimits, dockercontainer.HugepageLimit{
+			PageSize: hugepageLimit.PageSize,
+			Limit:    hugepageLimit.Limit,
+		})
 	}
 
+	updateConfig := dockercontainer.UpdateConfig{
+		Resources: dockercontainer.Resources{
+			CPUPeriod:      resources.CpuPeriod,
+			CPUQuota:       resources.CpuQuota,
+			CPUShares:      resources.CpuShares,
+			Memory:         resources.MemoryLimitInBytes,
+			CpusetCpus:     resources.CpusetCpus,
+			CpusetMems:     resources.CpusetMems,
+			HugepageLimits: hugepageLimits,
+		},
+	}
 	err := ds.client.UpdateContainerResources(r.ContainerId, updateConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update container %q: %v", r.ContainerId, err)
