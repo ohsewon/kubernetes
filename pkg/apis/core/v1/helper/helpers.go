@@ -21,13 +21,15 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/kubernetes/pkg/apis/core/helper"
+
+	units "github.com/docker/go-units"
 )
 
 // IsExtendedResourceName returns true if:
@@ -83,6 +85,14 @@ func HugePageSizeFromResourceName(name v1.ResourceName) (resource.Quantity, erro
 	}
 	pageSize := strings.TrimPrefix(string(name), v1.ResourceHugePagesPrefix)
 	return resource.ParseQuantity(pageSize)
+}
+
+// HugePageUnitSizeFromByteSize returns hugepage size has the format
+// <size><unit-prefix>B (1024 = "1KB", 1048576 = "1MB", etc).
+func HugePageUnitSizeFromByteSize(limit int64) string {
+	// Borrowed from opencontainers/runc/libcontainer/cgroups/utils.go
+	var hugePageSizeUnitList = []string{"B", "KB", "MB", "GB", "TB", "PB"}
+	return units.CustomSize("%g%s", float64(limit), 1024.0, hugePageSizeUnitList)
 }
 
 // IsOvercommitAllowed returns true if the resource is in the default
