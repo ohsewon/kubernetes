@@ -87,12 +87,13 @@ func HugePageSizeFromResourceName(name v1.ResourceName) (resource.Quantity, erro
 	return resource.ParseQuantity(pageSize)
 }
 
-// HugePageUnitSizeFromByteSize returns hugepage size has the format
+// HugePageUnitSizeFromByteSize returns hugepage size has the format.
+// `size` must be guaranteed to divisible into the largest units that can be expressed.
 // <size><unit-prefix>B (1024 = "1KB", 1048576 = "1MB", etc).
-func HugePageUnitSizeFromByteSize(limit int64) string {
+func HugePageUnitSizeFromByteSize(size int64) string {
 	// Borrowed from opencontainers/runc/libcontainer/cgroups/utils.go
 	var hugePageSizeUnitList = []string{"B", "KB", "MB", "GB", "TB", "PB"}
-	return units.CustomSize("%g%s", float64(limit), 1024.0, hugePageSizeUnitList)
+	return units.CustomSize("%g%s", float64(size), 1024.0, hugePageSizeUnitList)
 }
 
 // IsOvercommitAllowed returns true if the resource is in the default
