@@ -22,9 +22,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func makeExpectedConfig(m *kubeGenericRuntimeManager, pod *v1.Pod, containerIndex int) *runtimeapi.ContainerConfig {
@@ -134,4 +136,45 @@ func TestGenerateContainerConfig(t *testing.T) {
 
 	_, _, err = m.generateContainerConfig(&podWithContainerSecurityContext.Spec.Containers[0], podWithContainerSecurityContext, 0, "", podWithContainerSecurityContext.Spec.Containers[0].Image)
 	assert.Error(t, err, "RunAsNonRoot should fail for non-numeric username")
+}
+
+func TestGetHugepageLimitsFromResources(t *testing.T) {
+	tests := []struct {
+		resources v1.ResourceRequirements
+		expected  []*runtimeapi.HugepageLimit
+	}{
+		{
+			resources: v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					"hugepages-2Mi": resource.MustParse("2Mi"),
+					"hugepages-1Gi": resource.MustParse("2Gi"),
+				},
+			},
+			expected: []*runtimeapi.HugepageLimit{
+				&runtimeapi.HugepageLimit{
+					PageSize: "2MB",
+					Limit:    2097152,
+				},
+				&runtimeapi.HugepageLimit{
+					PageSize: "1GB",
+					Limit:    2147483648,
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		results := GetHugepageLimitsFromResources(test.resources)
+
+		// Assume that nothing has the same PageSize in `test.expected` and `results`.
+		for _, expect := range test.expected {
+			for _, result := range results {
+				if expect.PageSize != result.PageSize {
+					continue
+				}
+				if expect.Limit != result.Limit {
+					t.Errorf("test failed. Expected %v but got %v", test.expected, results)
+				}
+			}
+		}
+	}
 }

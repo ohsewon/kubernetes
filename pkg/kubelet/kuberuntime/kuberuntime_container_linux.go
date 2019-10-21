@@ -81,32 +81,45 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
 		lc.Resources.CpuPeriod = cpuPeriod
 	}
 
+	lc.Resources.HugepageLimits = GetHugepageLimitsFromResources(container.Resources)
+
+	return lc
+}
+
+// GetHugepageLimitsFromResources returns limits of each hugepages from resources.
+func GetHugepageLimitsFromResources(resources v1.ResourceRequirements) []*runtimeapi.HugepageLimit {
+	var hugepageLimits []*runtimeapi.HugepageLimit
 	pageSizes := sets.NewString()
-	for resourceObj, amountObj := range container.Resources.Limits {
-		if v1helper.IsHugePageResourceName(resourceObj) {
-			pageSize, err := v1helper.HugePageSizeFromResourceName(resourceObj)
-			if err != nil {
-				continue
-			}
-			sizeString := v1helper.HugePageUnitSizeFromByteSize(pageSize.Value())
-			lc.Resources.HugepageLimits = append(lc.Resources.HugepageLimits, &runtimeapi.HugepageLimit{
-				PageSize: sizeString,
-				Limit:    uint64(amountObj.Value()),
-			})
-			pageSizes.Insert(sizeString)
+
+	for resourceObj, amountObj := range resources.Limits {
+		if !v1helper.IsHugePageResourceName(resourceObj) {
+			continue
 		}
+
+		pageSize, err := v1helper.HugePageSizeFromResourceName(resourceObj)
+		if err != nil {
+			continue
+		}
+
+		sizeString := v1helper.HugePageUnitSizeFromByteSize(pageSize.Value())
+		hugepageLimits = append(hugepageLimits, &runtimeapi.HugepageLimit{
+			PageSize: sizeString,
+			Limit:    uint64(amountObj.Value()),
+		})
+
+		pageSizes.Insert(sizeString)
 	}
 
-	// for each page size omitted, limit to 0
+	// For each page size omitted, limit to 0.
 	for _, pageSize := range cgroupfs.HugePageSizes {
 		if pageSizes.Has(pageSize) {
 			continue
 		}
-		lc.Resources.HugepageLimits = append(lc.Resources.HugepageLimits, &runtimeapi.HugepageLimit{
+		hugepageLimits = append(hugepageLimits, &runtimeapi.HugepageLimit{
 			PageSize: pageSize,
 			Limit:    uint64(0),
 		})
 	}
 
-	return lc
+	return hugepageLimits
 }
