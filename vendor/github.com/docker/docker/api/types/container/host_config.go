@@ -338,6 +338,7 @@ type Resources struct {
 	Devices              []DeviceMapping // List of devices to map inside the container
 	DeviceCgroupRules    []string        // List of rule to be added to the device cgroup
 	DeviceRequests       []DeviceRequest // List of device requests for device drivers
+	HugepageLimits       []HugepageLimit
 	DiskQuota            int64           // Disk limit (in bytes)
 	KernelMemory         int64           // Kernel memory limit (in bytes)
 	KernelMemoryTCP      int64           // Hard limit for kernel TCP buffer memory (in bytes)
@@ -353,6 +354,12 @@ type Resources struct {
 	CPUPercent         int64  `json:"CpuPercent"` // CPU percent
 	IOMaximumIOps      uint64 // Maximum IOps for the container system drive
 	IOMaximumBandwidth uint64 // Maximum IO in bytes per second for the container system drive
+}
+
+// HugepageLimit for hugepage limit
+type HugepageLimit struct {
+	PageSize string
+	Limit    uint64
 }
 
 // UpdateConfig holds the mutable attributes of a Container.
